@@ -14,8 +14,8 @@
 //#define TESTONLY    1
 // Some GUI geometry sizes (16 vs 32 channel)
 //#define YBOXSMALL    460
-#define YBOXSMALL    1000
-#define YBOXBIG      1000
+#define YBOXSMALL    750
+#define YBOXBIG      750
 //#define YBOXBIG      1000
 // Constants for the logic
 #define SHOWRATE       1
@@ -78,7 +78,7 @@ Int_t THaScalerGui::InitFromDB() {
 // Adjust some parameters of xscaler from DB if they were set there.
 // Otherwise the parameters are defaults which are probably ok.
   if (!scaler) return -1;
-  if ( !scaler->GetDataBase()) return -1;
+  if ( !(database=scaler->GetDataBase())) return -1;
   std::string server,port,clkchan,clkslot,clkrate;
   server = scaler->GetDataBase()->GetStringDirectives(crate, "xscaler-server", "IP"); 
   if (server != "none") {
@@ -129,7 +129,7 @@ Int_t THaScalerGui::InitPlots() {
   showselect = SHOWRATE;
   TGTab *fTab = new TGTab(this, 600, 800);
   // TGTab *fTab = new TGTab(this, 1000, 1000);
-  TGLayoutHints *fLayout = new TGLayoutHints(kLHintsCenterX | kLHintsExpandX, 10, 10, 10, 10);
+  TGLayoutHints *fLayout = new TGLayoutHints(kLHintsCenterX | kLHintsExpandX | kLHintsExpandY, 10, 10, 10, 10);
   TGLayoutHints *fLayout2 = new TGLayoutHints(kLHintsNormal ,10, 10, 10, 10);
   if (!scaler->GetDataBase()) {
     cout << "THaScalerGui::WARNING: no database.  Will use defaults..."<<endl;
@@ -163,7 +163,7 @@ Int_t THaScalerGui::InitPlots() {
     if (nrow * ncol > 16) yboxsize[ipage] = YBOXBIG;
 
     //Page Label
-    const TGFont *font = gClient->GetFont("-*-times-medium-r-normal-*-34-*-*-*-*-*-*-*");
+    const TGFont *font = gClient->GetFont("-*-times-medium-r-normal-*-30-*-*-*-*-*-*-*");
     if (!font)
       font = gClient->GetResourcePool()->GetDefaultFont();
     FontStruct_t labelfont = font->GetFontStruct();
@@ -201,9 +201,20 @@ Int_t THaScalerGui::InitPlots() {
           char cbutton[100];
 	  std::string buttonname = "none";
           if (scaler->GetDataBase()) { 
-            std::vector<std::string> strb = 
-               scaler->GetDataBase()->GetShortNames(crate,slot,chan);
-  	    buttonname = strb[0];
+	    Int_t actualslot;
+	    Int_t actualchan;
+	    if(slot >= 1000) {
+	      Int_t page = slot - 1000;
+	      std::pair<Int_t, Int_t> slotchan = database->GetSlotChanFromPageIndex(crate,page,chan);
+	      actualslot = slotchan.first;
+	      actualchan = slotchan.second;
+	    } else {
+	      actualslot = slot;
+	      actualchan = chan;
+	    }
+	    std::vector<std::string> strb
+	      = scaler->GetDataBase()->GetShortNames(crate,actualslot,actualchan);
+	    buttonname = strb[0];
 	  }
           if (buttonname == "none") {
             sprintf(cbutton,"%d ==>",ncol*row+col+1);
@@ -213,7 +224,8 @@ Int_t THaScalerGui::InitPlots() {
           fButton1 = new TGTextButton(fr,new TGHotString(cbutton),
                    SCAL_NUMBANK*SCAL_NUMCHAN + OFFSET_HIST + index);
 
-	  const TGFont *bfont = gClient->GetFont("-*-times-medium-r-normal-*-34-*-*-*-*-*-*-*");
+	  // XXXX
+	  const TGFont *bfont = gClient->GetFont("-*-times-bold-r-normal-*-26-*-*-*-*-*-*-*");
 	  if (!bfont)
 	    bfont = gClient->GetResourcePool()->GetDefaultFont();
 	  FontStruct_t buttonfont = bfont->GetFontStruct();
@@ -263,19 +275,19 @@ Int_t THaScalerGui::InitPlots() {
   fGCb->AddFrame(fQuit, fLayout2);
   fQuit->Associate(this);
 
-  const TGFont *dfont = gClient->GetFont("-*-times-bold-r-normal-*-34-*-*-*-*-*-*-*");
+  const TGFont *dfont = gClient->GetFont("-*-times-bold-r-normal-*-26-*-*-*-*-*-*-*");
   if (!dfont)
     dfont = gClient->GetResourcePool()->GetDefaultFont();
   FontStruct_t checkfont = dfont->GetFontStruct();
   
-  TGLabel *fGlabel2 = new TGLabel(fGCb, new TGString("                                                                                                              "));
+  TGLabel *fGlabel2 = new TGLabel(fGCb, new TGString("                                                   "));
   fGCb->AddFrame(fGlabel2, fLayout);
   
-  TGHotString *fHString1 = new TGHotString("Show Rates (in Hz)"); 
+  TGHotString *fHString1 = new TGHotString("Show Rates (Hz)"); 
   fRateSelect = new TGCheckButton(fGCb,fHString1,SCAL_NUMBANK*SCAL_NUMCHAN+OFFSET_RATE);
   fRateSelect->SetFont(checkfont);
   fRateSelect->SetTextColor(gcolor);
-  //fRateSelect->Resize(100,100);
+  // fRateSelect->Resize(100,100);
   fGCb->AddFrame(fRateSelect, fLayout);
   fRateSelect->Associate(this);
   fRateSelect->SetState(kButtonDown);
@@ -295,7 +307,7 @@ Int_t THaScalerGui::InitPlots() {
   SetWindowName("HALL  C   SCALER   DATA");
   SetIconName("Scalers");
   MapWindow(); 
-  Resize(1500,yboxsize[0]);
+  Resize(1150,yboxsize[0]);
   lastsize = yboxsize[0];
   return 0;
 };
@@ -303,6 +315,7 @@ Int_t THaScalerGui::InitPlots() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void THaScalerGui::InitPages() {
   Int_t ipage, slot;
+  Int_t page;
   static char value[50];
   slotmap.clear();
   if (!scaler) return;
@@ -311,19 +324,28 @@ void THaScalerGui::InitPages() {
   if (npages == 0) npages = 10;  // reasonable default
   for (ipage = 0; ipage < npages; ipage++) {
     slot = ipage;
+    page = -1;
     if ( scaler->GetDataBase()) {
       sprintf(value, "%d", ipage);
       string spage = value;
       string detname = scaler->GetDataBase()->GetStringDirectives(crate,"xscaler-pageslot",spage);
       if (detname.find("slot") != std::string::npos) {
 	sscanf(detname.c_str(), "slot%d", &slot); 
+      } else if (detname.find("page") != std::string::npos) {
+	sscanf(detname.c_str(), "page%d", &page);
       } else {
-        if (detname != "none") {
-          slot = scaler->GetSlot(detname);
+	if (detname != "none") {
+	  slot = scaler->GetSlot(detname);
 	}
       }
     }
-    slotmap.insert(make_pair(ipage, slot));
+    if(page < 0) {		// Standard behavior
+      slotmap.insert(make_pair(ipage, slot));
+    } else {			// User defined page contents
+      // Indicate that this page is user defined instead of being
+      // a particular slot
+      slotmap.insert(make_pair(ipage, 1000+page));
+    }
   }
 }
 
@@ -400,6 +422,10 @@ void THaScalerGui::updateValues() {
 #endif
   for (ipage = 0; ipage < npages; ipage++) {
     slot = slotmap[ipage];
+    // If slot < 0, this is a user defined page, not a slot
+    // Need a collection of pages that gives the slot and chan for
+    // a given page/index
+    //        scaler->GetScalerRateByPage(page,chan)
     for (chan = 0; chan < SCAL_NUMCHAN; chan++) {
        index = ipage*SCAL_NUMCHAN + chan;
 #ifdef TESTONLY
@@ -407,17 +433,36 @@ void THaScalerGui::updateValues() {
        count = rate + 100000;
        //       cout << "getting FAKE data "<<slot<<"  "<<chan<<"  data = "<<count<<endl;
 #else
-       count = (float)scaler->GetScaler(slot, chan);
-       rate  = (float)scaler->GetScalerRate(slot, chan);
+       Int_t actualslot;
+       Int_t actualchan;
+       if(slot >= 1000) {
+	 Int_t page = slot - 1000;
+	 std::pair<Int_t, Int_t> slotchan = database->GetSlotChanFromPageIndex(crate,page,chan);
+	 actualslot = slotchan.first;
+	 actualchan = slotchan.second;
+       } else {
+	 actualslot = slot;
+	 actualchan = chan;
+       }
+       count = (float)scaler->GetScaler(actualslot, actualchan);
+       rate  = (float)scaler->GetScalerRate(actualslot, actualchan);
        //       cout << "getting data "<<slot<<"  "<<chan<<"  data = "<<count<<"   "<<rate<<endl;
        //       cout << "showselect = "<<showselect<<endl;
 #endif
        switch (showselect) {
            case SHOWRATE:
+	     if(rate < 100000.0 && rate >= 0.1) {
+	       sprintf(value,"%7.1f", rate);
+	     } else {
                sprintf(value,"%-6.2e",rate);
+	     }
                break;
            case SHOWCOUNT:
+	     if(count <1000000 && count > 0.0) {
+               sprintf(value,"%6d",(int) count);
+	     } else {
                sprintf(value,"%-6.2e",count);
+	     }
                break;
            default:
    	       cout << "WARNING: Not updating rates or counts "<<endl;
@@ -452,15 +497,26 @@ void THaScalerGui::popPlot(int index) {
   if (crate==7) specname = "Right-HRS";
 
 
-  Int_t page;
-  page = TMath::FloorNint((float)index/32);
-  Int_t slot= slotmap[page];
+  Int_t ipage;
+  ipage = TMath::FloorNint((float)index/32);
+  Int_t slot= slotmap[ipage];
   Int_t chan = index % 32;
   
   TString buttonname = "none";
   if (scaler->GetDataBase()) { 
+    Int_t actualslot;
+    Int_t actualchan;
+    if(slot >= 1000) {
+      Int_t page = slot - 1000;
+      std::pair<Int_t, Int_t> slotchan = database->GetSlotChanFromPageIndex(crate,page,chan);
+      actualslot = slotchan.first;
+      actualchan = slotchan.second;
+    } else {
+      actualslot = slot;
+      actualchan = chan;
+    }
     std::vector<std::string> strb = 
-      scaler->GetDataBase()->GetShortNames(crate,slot,chan);
+      scaler->GetDataBase()->GetShortNames(crate,actualslot,actualchan);
     buttonname = strb[0];
   }
   if (buttonname== "none") buttonname="Empty Channel";
