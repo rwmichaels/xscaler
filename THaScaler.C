@@ -76,7 +76,7 @@ THaScaler::THaScaler( const char* bankgr ) {
   fcodafile = new THaCodaFile;
   rawdata = new Int_t[2*SCAL_NUMBANK*SCAL_NUMCHAN];
   memset(rawdata,0,2*SCAL_NUMBANK*SCAL_NUMCHAN*sizeof(Int_t));
-  clockrate = 1024;  // a default 
+  clockrate = 1024;  // a default
 };
 
 THaScaler::~THaScaler() {
@@ -161,7 +161,7 @@ Int_t THaScaler::InitData(std::string bankgroup, const Bdate& date_want) {
 
   struct DataMap {
     const char *bank_name;      // name of bank ("Left", "Right", "dvcs", etc)
-    Int_t bank_header;          // header to find data
+    UInt_t bank_header;          // header to find data
     Int_t bank_cratenum;        // crate number
     Int_t evstr_type;           // part of event stream (1) or evtype 140
     Int_t normslot;             // slot of normalization data (database can
@@ -197,31 +197,31 @@ Int_t THaScaler::InitData(std::string bankgroup, const Bdate& date_want) {
 
    std::string bank_to_find = "unknown";
    if (database) {
-     if ( database->FindNoCase(bankgroup,"Left") != std::string::npos  
+     if ( database->FindNoCase(bankgroup,"Left") != -1  
         || bankgroup == "L" ) {
           bank_to_find = "Left"; 
      }
-     if ( database->FindNoCase(bankgroup,"Right") != std::string::npos  
+     if ( database->FindNoCase(bankgroup,"Right") != -1  
         || bankgroup == "R" ) {
           bank_to_find = "Right"; 
      }
-     if ( database->FindNoCase(bankgroup,"dvcs") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"dvcs") != -1) {
           bank_to_find = "dvcs"; 
      }
-     if ( database->FindNoCase(bankgroup,"N20") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"N20") != -1) {
           bank_to_find = "N20"; 
      }
-     if ( database->FindNoCase(bankgroup,"evleft") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"evleft") != -1) {
           bank_to_find = "evleft"; 
      }
-     if ( database->FindNoCase(bankgroup,"evright") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"evright") != -1) {
           bank_to_find = "evright"; 
      }
-     if ( database->FindNoCase(bankgroup,"SHMS") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"SHMS") != -1) {
           bank_to_find = "SHMS"; 
           goto done1;
      }
-     if ( database->FindNoCase(bankgroup,"HMS") != std::string::npos) {
+     if ( database->FindNoCase(bankgroup,"HMS") != -1) {
           bank_to_find = "HMS"; 
          goto done1;
      }
@@ -329,7 +329,7 @@ void THaScaler::SetupNormMap() {
   clkchan = GetChan("clock");
   for (Int_t ichan = 0; ichan < SCAL_NUMCHAN; ichan++) {
     std::vector<std::string> chan_name = database->GetShortNames(crate, normslot[0], ichan);
-    for (int i = 0; i < chan_name.size(); i++) {
+    for (UInt_t i = 0; i < chan_name.size(); i++) {
       if (chan_name[i] != "none") {
         normmap.insert(make_pair(chan_name[i], ichan));
       }
@@ -531,36 +531,53 @@ Int_t THaScaler::LoadDataRPC(const char* host) {
      static Int_t chanPerScaler = 32;
      static Float_t defaultClkRate = 60;
 
-     static int firsttime = 1;
      static int ldebug = 0;
      static char rpchost[100];
      Int_t ntot, lreturn;
-
-     if (firsttime) {
+     static CLIENT *rpchandle=0;
+     static int *rpcscalers=0;
+     static int *rpcoverflows=0;
+     static int rpcchannels=0;
+     static int rpciclock=0;
+   
+     if (!rpchandle) {
        strcpy(rpchost, host);
        rpchandle=scaserOpen(rpchost);
        cout << "RPC host "<<rpchost<<"    handle  "<<rpchandle<<endl;
        if (rpchandle !=0) {
-	 scaserGetInfo(rpchandle,0,&rpcchannels,0,&rpciclock);
-         rpcscalers = (int *) malloc(rpcchannels*sizeof(int)); 
-         rpcoverflows = (int *) malloc(rpcchannels*sizeof(int));
-         Int_t slot = (Int_t) (rpciclock/chanPerScaler);
-         Int_t chan = rpciclock - chanPerScaler*slot;
-         if (ldebug) printf("\nRPC scalers: num channels %d  clock chan %d %d %d\n",
-                 rpcchannels,rpciclock, slot, chan);
+	 // If we previously opened, assume everything the same
+	 if(!rpcchannels) {
+	   if(!scaserGetInfo(rpchandle,0,&rpcchannels,0,&rpciclock)) {
+	     rpcchannels = 0;
+	     rpciclock = 0;
+	     printf("Warning:  RPC scaler server timeout!  Setting values to zero.\n");
+	     ClearAll();
+	     return -1;  // no connection
+	   }
+	   rpcscalers = (int *) malloc(rpcchannels*sizeof(int));
+	   rpcoverflows = (int *) malloc(rpcchannels*sizeof(int));
+	   Int_t slot = (Int_t) (rpciclock/chanPerScaler);
+	   Int_t chan = rpciclock - chanPerScaler*slot;
+	   if (ldebug) printf("\nRPC scalers: num channels %d  clock chan %d %d %d\n",
+			      rpcchannels,rpciclock, slot, chan);
+	   // If clock not defined, use channel reported by server
+	   if(GetClockSlot() < 0 || GetClockChan() < 0) {
+	     printf("LoadDataRPC:: Warning:  Clock not defined in scaler.map, use server defined slot/chan=%d/%d @ 60Hz\n", slot, chan);
+	     SetClockLoc(slot, chan);
+	     SetClockRate(defaultClkRate);
+	   }
 // Check for consistency versus what was assumed in the scaler.map file "xscaler-clock" line
 // but use the values found here anyway.
-         if (slot != GetClockSlot()) 
-           printf("LoadDataRPC:: Warning:  discovered clock slot %d disagrees with scaler map slot %d\n",
-                slot,GetClockSlot());
-         if (chan != GetClockChan()) 
-           printf("LoadDataRPC:: Warning:  discovered clock chan %d disagrees with scaler map chan %d\n",
-                chan,GetClockChan());
-         SetClockLoc(slot, chan);
-         if (GetClockRate() != defaultClkRate) 
-           printf("Warning: Assumed clock rate %f inconsistent with scaler.map\n",GetClockRate());
-         SetClockRate(defaultClkRate);
-         firsttime = 0;
+	   if (slot != GetClockSlot()) 
+	     printf("LoadDataRPC:: Note:  discovered clock slot %d disagrees with scaler map slot %d\n",
+		    slot,GetClockSlot());
+	   if (chan != GetClockChan()) 
+	     printf("LoadDataRPC:: Note:  discovered clock chan %d disagrees with scaler map chan %d\n",
+		    chan,GetClockChan());
+	   if (GetClockRate() != defaultClkRate) 
+	     printf("Note: Assumed clock rate %f inconsistent with scaler.map\n",GetClockRate());
+	 }
+
        } else {
          fprintf(stderr,"THaScaler::LoadDataRPC::Error connecting to %s\n",host);
        }
@@ -582,6 +599,8 @@ Int_t THaScaler::LoadDataRPC(const char* host) {
         printf("Warning:  RPC scaler server %s reading failed.  Setting values to zero.\n",rpchost);
         printf("Check if %s is up \n",rpchost);
 	ClearAll();
+	scaserClose(rpchandle);
+	rpchandle=0;		// Let it try to reopen next time
         return -1;  // no data
      }
 
@@ -822,8 +841,8 @@ Int_t THaScaler::GetScaler(const char* det, const char* pm, Int_t chan,
   string PMT = pm;
   if ( !did_init | !one_load ) return 0;
   if ( !database ) return 0;
-  if ( database->FindNoCase(PMT,"Left") != std::string::npos ) detector += "L";
-  if ( database->FindNoCase(PMT,"Right") != std::string::npos ) detector += "R";
+  if ( database->FindNoCase(PMT,"Left") != -1 ) detector += "L";
+  if ( database->FindNoCase(PMT,"Right") != -1 ) detector += "R";
   Int_t slot = GetSlot(detector);
   if (slot == -1) return 0;
   return GetScaler(slot,GetChan(detector,0,chan),histor);

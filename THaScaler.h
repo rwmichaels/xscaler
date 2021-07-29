@@ -132,7 +132,8 @@ protected:
    std::multimap<std::string, Int_t> normmap;
    Int_t *rawdata;
    Bool_t coda_open;
-   Int_t header, crate, evstr_type;
+   UInt_t header;
+   Int_t crate, evstr_type;
    std::string vme_server;
    int vme_port, clkslot, clkchan;
    Bool_t found_crate,first_loop;
@@ -151,9 +152,9 @@ protected:
    Double_t off_u1,off_u3,off_u10,off_d1,off_d3,off_d10;
    Double_t GetTimeDiff(Int_t helicity);
    void SetupNormMap();
-   CLIENT *rpchandle;
-   int *rpcscalers, *rpcoverflows;
-   int rpcchannels, rpciclock;
+
+  //   int *rpcscalers, *rpcoverflows;
+  //   int rpcchannels, rpciclock;
 
 
    static const Int_t fDebug = 0;
